@@ -1,0 +1,67 @@
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+script = "script"
+libs = ["lib", "node_modules"]
+solc = "0.8.24"
+# OpenZeppelin 5.6 的 utils/Bytes.sol 使用了 `mcopy` 指令，该指令要求 Cancun 目标
+# （以太坊主网自 2024 年 3 月起已启用），因此 Cancun 是本项目的最低要求。
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+gas_reports = ["BlockchainVault"]
+# 部署脚本会写出 `deployments/<chainId>.json`，因此需要写权限。
+fs_permissions = [{ access = "read-write", path = "./" }]
+
+[profile.default.fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+
+# 覆盖率统计需要走 IR 流水线，以避免嵌套较深的测试出现 "stack too deep"。
+[profile.coverage]
+via_ir = true
+
+[profile.ci]
+fuzz = { runs = 512 }
+invariant = { runs = 64, depth = 32 }
+
+[lint]
+# 以下检查项对本合约而言在结构上并不适用，每一条的理由都在 docs/SECURITY.md 中有说明；
+# 屏蔽它们并未掩盖任何真实缺陷。
+#  - arbitrary-send-eth : 「向调用者指定的地址发送 ETH」正是本合约的功能所在。
+#                         它受到 Owner/Admin 角色校验、暂停开关以及可选白名单的三重约束。
+#  - block-timestamp    : 需求文档规定，签名 deadline 与滚动单日限额就是以
+#                         `block.timestamp` 为基准定义的。
+#  - asm-keccak256      : 一个以牺牲可读性为代价的 gas 微优化。
+#  - reentrancy-events  : 已确认的误报。该规则会把继承自 `onlyOwner` 修饰符内部的
+#                         `owner()` 调用算到被保护函数的函数体上，并把「内部调用 public
+#                         函数」误判为外部交互。同样的原因，它也会对 OpenZeppelin 自带的
+#                         Ownable 与 Pausable 报警。本合约中的每一次 emit 都位于其全部
+#                         校验之后（已由 test/Attack.t.sol 验证）。
+exclude_lints = ["arbitrary-send-eth", "block-timestamp", "asm-keccak256", "reentrancy-events"]
+# 注意：`[lint] ignore` 不会过滤传递引入的依赖，也不会过滤测试目录，
+# 因此需要显式传入路径来限定检查范围：
+#
+#   forge lint --deny warnings src script
+#
+# `src/` 与 `script/` 才是实际交付的代码。`test/` 目录刻意包含了一些违反生产规则的
+# 辅助合约（只收不付的 ETH 接收器、循环内的外部调用、被忽略的 ERC20 返回值），
+# 因此整体排除在该门禁之外，而不是逐条规则去屏蔽。
+
+[lint.lint_specific]
+mixed_case_exceptions = [
+    "ERC",
+    "URI",
+    "ID",
+    "URL",
+    "API",
+    "JSON",
+    "XML",
+    "HTML",
+    "HTTP",
+    "HTTPS",
+    "ETH",
+]

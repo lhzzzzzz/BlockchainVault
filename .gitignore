@@ -1,0 +1,21 @@
+# Foundry 构建产物
+out/
+cache/
+broadcast/
+
+# Node 依赖
+node_modules/
+package-lock.json
+
+# 覆盖率报告
+lcov.info
+coverage/
+
+# 环境变量 / 密钥
+.env
+.env.*
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
