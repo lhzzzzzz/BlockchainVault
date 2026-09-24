@@ -11,6 +11,7 @@ library VaultV2Storage {
     /// @dev `keccak256(abi.encode(uint256(keccak256("vault.storage.BlockchainVaultV2")) - 1)) & ~bytes32(uint256(0xff))`。
     bytes32 internal constant SLOT = 0xf3f2427fbe6a50c90783b9c9fa31dbcbbfc7fbdf9c3821d38644fc4a07c67200;
 
+    /// @custom:storage-location erc7201:vault.storage.BlockchainVaultV2
     struct Layout {
         uint256 withdrawalCount;
     }

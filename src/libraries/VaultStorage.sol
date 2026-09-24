@@ -17,6 +17,7 @@ library VaultStorage {
     /// @param dailyWithdrawLimit 每个代币按 UTC 日累计的限额；`0` 表示关闭该校验。
     /// @param spentToday 在 `lastSpendDay[token]` 这一天内已经提出的金额。
     /// @param lastSpendDay `spentToday` 所属的 UTC 日序号（`block.timestamp / 1 days`）。
+    /// @custom:storage-location erc7201:vault.storage.BlockchainVault
     struct Layout {
         mapping(address account => bool isAdmin) admins;
         mapping(address signer => uint256 nonce) nonces;
