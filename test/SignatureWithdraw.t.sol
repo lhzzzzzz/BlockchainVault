@@ -28,6 +28,7 @@ contract SignatureWithdrawTest is VaultTestBase {
     // FR-3.1 / FR-3.2 / FR-3.3 / FR-3.4 —— 正常路径
     // ---------------------------------------------------------------------
 
+    /// @dev Owner 签名提 ETH：收款方到账、金库余额减少，并发出一笔 `WithdrawnWithSig`。
     function test_OwnerSignatureWithdrawsETH() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 5 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -44,6 +45,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         assertEq(vault.getETHBalance(), 95 ether);
     }
 
+    /// @dev Admin 签名提 ERC20：事件里的 signer 是 Admin，且消耗的是 Admin 自己的 nonce。
     function test_AdminSignatureWithdrawsERC20() public {
         vm.prank(owner);
         vault.addAdmin(admin);
@@ -82,6 +84,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         }
     }
 
+    /// @dev nonce 是「每个签名者各自独立」的：Owner 的提款不会推进 Admin 的计数。
     function test_NoncesAreTrackedPerSigner() public {
         vm.prank(owner);
         vault.addAdmin(admin);
@@ -100,6 +103,8 @@ contract SignatureWithdrawTest is VaultTestBase {
         assertEq(vault.getNonce(admin), 1);
     }
 
+    /// @dev FR-3.6 的边界：`deadline` 正好等于当前时间戳时仍然有效
+    ///      （判断是 `block.timestamp > deadline` 才拒绝）。
     function test_DeadlineAtExactlyNowIsStillValid() public {
         IBlockchainVault.WithdrawRequest memory request =
             _requestWithDeadline(alice, address(0), 1 ether, 0, block.timestamp);
@@ -114,6 +119,7 @@ contract SignatureWithdrawTest is VaultTestBase {
     // FR-3.5 / SC-2 / AC-6 —— 防重放
     // ---------------------------------------------------------------------
 
+    /// @dev FR-3.5 / AC-6：同一份签名第二次提交被 `InvalidNonce(owner, 0, 1)` 拒绝。
     function test_ReplayingTheSameSignatureReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -124,6 +130,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, signature);
     }
 
+    /// @dev nonce 必须严格顺序：跳过中间的号（用 5 而当前是 0）会被拒绝。
     function test_SkippingANonceReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _request(alice, address(0), 1 ether, 5);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -148,6 +155,8 @@ contract SignatureWithdrawTest is VaultTestBase {
     // FR-3.6 / AC-7 —— 过期
     // ---------------------------------------------------------------------
 
+    /// @dev FR-3.6 / AC-7：deadline 已过（当前时间 − 1 秒）的签名被 `SignatureExpired` 拒绝，
+    ///      错误里带上 deadline 与当前时间戳。
     function test_ExpiredSignatureReverts() public {
         uint256 deadline = block.timestamp - 1;
         IBlockchainVault.WithdrawRequest memory request =
@@ -160,6 +169,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, signature);
     }
 
+    /// @dev 时间前进越过 deadline 之后，原本有效的签名自然失效（无需任何链上操作）。
     function test_SignatureBecomesInvalidAfterDeadlinePasses() public {
         IBlockchainVault.WithdrawRequest memory request =
             _requestWithDeadline(alice, address(0), 1 ether, 0, block.timestamp + 10 minutes);
@@ -179,6 +189,8 @@ contract SignatureWithdrawTest is VaultTestBase {
     // FR-3.7 / SC-3 —— 跨链重放
     // ---------------------------------------------------------------------
 
+    /// @dev FR-3.7 / SC-3：按「另一条链的 chainId」算出的摘要签名后在本链提交，
+    ///      会恢复出不同地址而被判为 `UnauthorizedSigner`。
     function test_SignatureSignedForAnotherChainIdReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _request(alice, address(0), 1 ether, 0);
         bytes memory signature = _sign(OWNER_PK, _digest(block.chainid + 1, address(vault), request));
@@ -200,6 +212,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         assertEq(alice.balance, ETH_FUNDING + 1 ether);
     }
 
+    /// @dev 域分隔符随 chainId 变化：链切换后 `domainSeparator()` 与按新链重算的结果一致。
     function test_DomainSeparatorTracksChainId() public {
         bytes32 original = vault.domainSeparator();
         assertEq(original, _domainSeparator(block.chainid, address(vault)));
@@ -214,6 +227,7 @@ contract SignatureWithdrawTest is VaultTestBase {
     // FR-3.8 —— 跨合约重放
     // ---------------------------------------------------------------------
 
+    /// @dev FR-3.8：同一份签名在本金库有效，但拿到另一个金库（地址不同）会恢复出别的地址而被拒。
     function test_SignatureSignedForAnotherVaultReverts() public {
         BlockchainVault otherVault = _deployVault(owner);
         vm.deal(address(otherVault), 10 ether);
@@ -233,6 +247,7 @@ contract SignatureWithdrawTest is VaultTestBase {
     // FR-3.4 —— 签名者必须持有 Owner 或 Admin 角色
     // ---------------------------------------------------------------------
 
+    /// @dev FR-3.4：无关地址（stranger）自己签名也会被 `UnauthorizedSigner(stranger)` 拒绝。
     function test_SignatureFromUnauthorisedAccountReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _request(alice, address(0), 1 ether, 0);
         bytes memory signature = _signRequest(STRANGER_PK, request);
@@ -273,6 +288,7 @@ contract SignatureWithdrawTest is VaultTestBase {
     // AC-8 / SC-4 —— 篡改与可延展性
     // ---------------------------------------------------------------------
 
+    /// @dev AC-8：把已签名的金额从 5 改成 6 后，摘要变化导致恢复出别的地址而被拒。
     function test_TamperedAmountReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 5 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -283,6 +299,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, signature);
     }
 
+    /// @dev 篡改收款方（把资金改道给攻击者）同样失效。
     function test_TamperedRecipientReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -293,6 +310,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, signature);
     }
 
+    /// @dev 篡改代币（把「提 ETH」改成「提某个代币」）同样失效。
     function test_TamperedTokenReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -303,6 +321,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, signature);
     }
 
+    /// @dev nonce 也在摘要里：改 nonce 就等于改签名，因此无法把一份授权挪到别的 nonce 槽位复用。
     function test_TamperedNonceReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -313,6 +332,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, signature);
     }
 
+    /// @dev 篡改 deadline（把有效期延长一天）同样失效。
     function test_TamperedDeadlineReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -339,6 +359,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, abi.encodePacked(r, flippedS, flippedV));
     }
 
+    /// @dev 空签名（长度 0）被 `ECDSAInvalidSignatureLength(0)` 拒绝。
     function test_EmptySignatureReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
 
@@ -346,6 +367,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, "");
     }
 
+    /// @dev 长度不足 65 字节的签名（64 字节）被 `ECDSAInvalidSignatureLength(64)` 拒绝。
     function test_ShortSignatureReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
 
@@ -353,6 +375,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, new bytes(64));
     }
 
+    /// @dev `v` 不是 27/28 时被 `ECDSAInvalidSignature` 拒绝（防止随意构造恢复值）。
     function test_InvalidVValueReverts() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
         bytes32 digest = _digestForVault(request);
@@ -367,11 +390,13 @@ contract SignatureWithdrawTest is VaultTestBase {
     // FR-3.1 —— EIP-712 域本身
     // ---------------------------------------------------------------------
 
+    /// @dev 金库的 `hashWithdrawRequest` 必须与夹具里独立实现的 EIP-712 摘要逐字节相同。
     function test_HashWithdrawRequestMatchesIndependentDigest() public view {
         IBlockchainVault.WithdrawRequest memory request = _request(alice, address(token), 42e18, 7);
         assertEq(vault.hashWithdrawRequest(request), _digest(block.chainid, address(vault), request));
     }
 
+    /// @dev ERC-5267：`eip712Domain()` 暴露的四个域字段与链上实际值一致（钱包据此自动构造域）。
     function test_Eip712DomainIsExposed() public view {
         (
             bytes1 fields,
@@ -392,6 +417,8 @@ contract SignatureWithdrawTest is VaultTestBase {
         assertEq(extensions.length, 0);
     }
 
+    /// @dev 链上暴露的 `WITHDRAW_REQUEST_TYPEHASH` 必须与需求约定的类型字符串完全一致
+    ///      （多一个空格、少一个字段都会让链下签名全部失效）。
     function test_WithdrawRequestTypehashMatchesSpec() public view {
         assertEq(
             vault.WITHDRAW_REQUEST_TYPEHASH(),
@@ -403,6 +430,7 @@ contract SignatureWithdrawTest is VaultTestBase {
     // 签名通道周边的守卫
     // ---------------------------------------------------------------------
 
+    /// @dev 暂停期间签名提款同样被 `EnforcedPause` 拦下。
     function test_SignatureWithdrawalRevertsWhilePaused() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -414,6 +442,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, signature);
     }
 
+    /// @dev 签名里的收款方是零地址时被 `ZeroAddress` 拒绝（签名有效也照样拦）。
     function test_SignatureWithdrawalRevertsToZeroAddress() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(address(0), 1 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -422,6 +451,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         vault.withdrawWithSig(request, signature);
     }
 
+    /// @dev 签名里的金额是 0 时被 `ZeroAmount` 拒绝。
     function test_SignatureWithdrawalRevertsOnZeroAmount() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 0);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -446,6 +476,7 @@ contract SignatureWithdrawTest is VaultTestBase {
         assertEq(vault.getNonce(owner), 0, "nonce must not be consumed by a reverted withdrawal");
     }
 
+    /// @dev 收款方拒收 ETH 时整笔回滚：nonce 仍为 0、金库余额分毫未动。
     function test_SignatureWithdrawalToRejectingContractReverts() public {
         RejectingRecipientForSig rejecting = new RejectingRecipientForSig();
 

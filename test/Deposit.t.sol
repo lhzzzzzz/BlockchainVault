@@ -18,6 +18,7 @@ contract DepositTest is VaultTestBase {
     // FR-1.1 / AC-1 —— 原生 ETH
     // ---------------------------------------------------------------------
 
+    /// @dev 直接向合约发送 ETH 会触发 `receive()`：转账成功、余额增加，并发出 `Deposited` 事件。
     function test_ReceiveCreditsETHAndEmitsDeposited() public {
         uint256 balanceBefore = vault.getETHBalance();
 
@@ -32,6 +33,7 @@ contract DepositTest is VaultTestBase {
         assertEq(address(vault).balance, balanceBefore + 5 ether);
     }
 
+    /// @dev 零金额转账不会回滚，但也不会发出事件——`receive()` 里的 `if (msg.value > 0)` 只影响日志。
     function test_ReceiveAcceptsZeroValueWithoutEmitting() public {
         uint256 balanceBefore = vault.getETHBalance();
 
@@ -43,6 +45,7 @@ contract DepositTest is VaultTestBase {
         assertEq(vault.getETHBalance(), balanceBefore);
     }
 
+    /// @dev 携带金额的未知选择器调用会落到 `fallback()`，同样计为存款并发出事件。
     function test_FallbackWithValueCreditsETH() public {
         uint256 balanceBefore = vault.getETHBalance();
 
@@ -56,6 +59,8 @@ contract DepositTest is VaultTestBase {
         assertEq(vault.getETHBalance(), balanceBefore + 3 ether);
     }
 
+    /// @dev 不带金额的未知选择器调用被 `fallback()` 以 `UnknownFunction(selector)` 拒绝
+    ///      （这类调用更像是误操作，而非有意存款）。
     function test_FallbackWithoutValueReverts() public {
         vm.expectRevert(
             abi.encodeWithSelector(IBlockchainVault.UnknownFunction.selector, IBogusFunction.bogus.selector)
@@ -67,6 +72,7 @@ contract DepositTest is VaultTestBase {
     // FR-1.2 / AC-2 —— ERC20
     // ---------------------------------------------------------------------
 
+    /// @dev 先 approve 再 `depositERC20`：金库余额增加、存款人余额减少，并发出 `Deposited`。
     function test_DepositERC20CreditsVault() public {
         uint256 vaultBefore = vault.getTokenBalance(address(token));
         uint256 aliceBefore = token.balanceOf(alice);
@@ -98,18 +104,22 @@ contract DepositTest is VaultTestBase {
         assertEq(nonStandardToken.balanceOf(address(vault)), 500e6);
     }
 
+    /// @dev 存入 0 金额被 `ZeroAmount` 拒绝。
     function test_DepositERC20RevertsOnZeroAmount() public {
         vm.expectRevert(IBlockchainVault.ZeroAmount.selector);
         vm.prank(alice);
         vault.depositERC20(address(token), 0);
     }
 
+    /// @dev 代币地址传 `address(0)` 被 `ZeroAddress` 拒绝。
     function test_DepositERC20RevertsOnZeroAddress() public {
         vm.expectRevert(IBlockchainVault.ZeroAddress.selector);
         vm.prank(alice);
         vault.depositERC20(address(0), 1e18);
     }
 
+    /// @dev 代币地址是 EOA（无代码）时被 `NotAContract` 拒绝——
+    ///      否则 SafeERC20 会对空地址「假成功」，金库误以为收到了钱。
     function test_DepositERC20RevertsForAddressWithoutCode() public {
         vm.expectRevert(abi.encodeWithSelector(IBlockchainVault.NotAContract.selector, alice));
         vm.prank(alice);
@@ -135,6 +145,7 @@ contract DepositTest is VaultTestBase {
         assertEq(feeToken.balanceOf(address(vault)), 990e18);
     }
 
+    /// @dev 100% 抽成的代币会让金库实际收到 0，此时以 `ZeroAmount` 回滚而不是记一笔空账。
     function test_DepositERC20RevertsWhenNothingArrives() public {
         MockFeeOnTransferERC20 feeToken = new MockFeeOnTransferERC20(10_000); // 100%
         feeToken.mint(alice, 1_000e18);
@@ -150,11 +161,13 @@ contract DepositTest is VaultTestBase {
     // FR-1.3 / FR-1.4 —— 余额查询
     // ---------------------------------------------------------------------
 
+    /// @dev `getETHBalance()` 返回的正是链上真实余额 `address(this).balance`。
     function test_GetETHBalanceReportsOnChainBalance() public view {
         assertEq(vault.getETHBalance(), address(vault).balance);
         assertEq(vault.getETHBalance(), 100 ether);
     }
 
+    /// @dev `getTokenBalance()` 返回的正是代币合约里的真实 `balanceOf(金库)`。
     function test_GetTokenBalanceReportsOnChainBalance() public view {
         assertEq(vault.getTokenBalance(address(token)), token.balanceOf(address(vault)));
         assertEq(vault.getTokenBalance(address(token)), 100_000e18);
@@ -164,6 +177,7 @@ contract DepositTest is VaultTestBase {
     // FR-5.3 / AC-10 —— 暂停不影响存款
     // ---------------------------------------------------------------------
 
+    /// @dev 暂停后提款被禁，但 ETH 与 ERC20 存款都必须照常成功（`whenNotPaused` 只加在提款入口）。
     function test_DepositsAreAllowedWhilePaused() public {
         vm.prank(owner);
         vault.pause();

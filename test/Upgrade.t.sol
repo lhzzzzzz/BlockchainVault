@@ -37,6 +37,7 @@ contract UpgradeTest is VaultTestBase {
     // 升级授权
     // ---------------------------------------------------------------------
 
+    /// @dev Owner 可以升级：代理的 ERC-1967 实现槽被改写，且新实现的新函数可用。
     function test_OwnerCanUpgrade() public {
         VaultV2 v2 = _upgradeToV2();
 
@@ -44,6 +45,7 @@ contract UpgradeTest is VaultTestBase {
         assertEq(_v2().version(), "2.0.0");
     }
 
+    /// @dev 升级会发出 ERC-1967 标准的 `Upgraded(implementation)` 事件，供链下监听。
     function test_UpgradeEmitsUpgradedEvent() public {
         VaultV2 v2 = new VaultV2();
 
@@ -54,6 +56,7 @@ contract UpgradeTest is VaultTestBase {
         vault.upgradeToAndCall(address(v2), "");
     }
 
+    /// @dev 非 Owner 升级被 `_authorizeUpgrade` 的 onlyOwner 拦下，且实现槽保持不变。
     function test_NonOwnerCannotUpgrade() public {
         VaultV2 v2 = new VaultV2();
 
@@ -76,6 +79,7 @@ contract UpgradeTest is VaultTestBase {
         vault.upgradeToAndCall(address(v2), "");
     }
 
+    /// @dev 升级目标必须实现 UUPS 的 `proxiableUUID`，普通 ERC20 合约会被拒绝。
     function test_CannotUpgradeToContractThatIsNotUUPS() public {
         vm.expectRevert(
             abi.encodeWithSelector(ERC1967Utils.ERC1967InvalidImplementation.selector, address(token))
@@ -109,6 +113,7 @@ contract UpgradeTest is VaultTestBase {
         vault.proxiableUUID();
     }
 
+    /// @dev 代理的实现地址存在 ERC-1967 规定的固定槽位（由字符串哈希推导，避开顺序布局）。
     function test_ProxyReportsTheErc1967ImplementationSlot() public view {
         assertEq(_implementationOf(address(vault)), address(implementation));
         assertEq(ERC1967Utils.IMPLEMENTATION_SLOT, bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1));
@@ -118,6 +123,7 @@ contract UpgradeTest is VaultTestBase {
     // 状态保持
     // ---------------------------------------------------------------------
 
+    /// @dev 升级不动资产：代理里的 ETH 与 ERC20 余额升级后分毫未变。
     function test_UpgradePreservesAssetBalances() public {
         _upgradeToV2();
 
@@ -125,6 +131,7 @@ contract UpgradeTest is VaultTestBase {
         assertEq(vault.getTokenBalance(address(token)), 100_000e18);
     }
 
+    /// @dev 升级不动权限与计数器：owner、admins、以及已消耗的 nonce 全部保持。
     function test_UpgradePreservesAdminsAndNonces() public {
         vm.prank(owner);
         vault.addAdmin(admin);
@@ -141,6 +148,7 @@ contract UpgradeTest is VaultTestBase {
         assertEq(vault.owner(), owner);
     }
 
+    /// @dev 升级不动风控配置：白名单开关与名单、单笔/单日限额全部保持。
     function test_UpgradePreservesRiskConfiguration() public {
         vm.startPrank(owner);
         vault.setWhitelistEnabled(true);
@@ -157,6 +165,7 @@ contract UpgradeTest is VaultTestBase {
         assertEq(vault.getDailyWithdrawLimit(address(token)), 5_000e18);
     }
 
+    /// @dev 升级后两条提款通道都仍可用，且签名 nonce 从 V1 停下的位置继续。
     function test_WithdrawalsStillWorkAfterUpgrade() public {
         _upgradeToV2();
 

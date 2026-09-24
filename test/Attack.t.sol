@@ -63,6 +63,8 @@ contract AttackTest is VaultTestBase {
         assertEq(vault.getETHBalance(), 99 ether);
     }
 
+    /// @dev 代币发起的重入（在 ERC20 的 `_update` 里回调金库）同样被重入锁拦住。
+    ///      该代币也被设为 Admin，确保拦截者不是权限修饰符。
     function test_ReentrancyGuardBlocksErc20Reentrancy() public {
         ReentrantERC20 hostileToken = new ReentrantERC20();
         hostileToken.setVault(vault);
@@ -114,6 +116,8 @@ contract AttackTest is VaultTestBase {
     // SC-2 —— 重放
     // ---------------------------------------------------------------------
 
+    /// @dev 同一份签名第一次有效，之后连续 3 次重放都被 `InvalidNonce` 拒绝，且资金不再移动。
+    ///      （nonce 进摘要 + 状态检查，两道防线共同作用。）
     function test_ReplayAttackIsRejected() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 2 ether);
         bytes memory signature = _signRequest(OWNER_PK, request);
@@ -137,6 +141,8 @@ contract AttackTest is VaultTestBase {
     // SC-3 —— 跨链重放
     // ---------------------------------------------------------------------
 
+    /// @dev 用「另一条链的 chainId」算出的摘要签名后拿到本链使用，
+    ///      会恢复出不同地址而被判为 `UnauthorizedSigner`，资金不动。
     function test_CrossChainReplayIsRejected() public {
         IBlockchainVault.WithdrawRequest memory request = _request(alice, address(0), 2 ether, 0);
         bytes memory signatureOnAnotherChain = _sign(OWNER_PK, _digest(block.chainid + 1, address(vault), request));
@@ -151,6 +157,8 @@ contract AttackTest is VaultTestBase {
     // SC-4 —— 签名可延展性
     // ---------------------------------------------------------------------
 
+    /// @dev 用 (v', r, n−s) 构造同一份授权的可延展对偶形式，必须被 ECDSA 的 s 值上限拒绝，
+    ///      且 nonce 不被消耗。
     function test_MalleableCounterpartIsRejected() public {
         IBlockchainVault.WithdrawRequest memory request = _ownerRequest(alice, 1 ether);
         bytes32 digest = _digestForVault(request);
@@ -198,6 +206,8 @@ contract AttackTest is VaultTestBase {
         vault.withdrawERC20(address(brokenToken), alice, 1e18);
     }
 
+    /// @dev 把 EOA（无代码地址）当代币传入时，被 `code.length` 检查挡下，
+    ///      避免 SafeERC20 对空地址「假成功」。
     function test_DepositFromAddressWithoutCodeIsRejected() public {
         vm.expectRevert(abi.encodeWithSelector(IBlockchainVault.NotAContract.selector, bob));
         vm.prank(owner);
@@ -208,18 +218,21 @@ contract AttackTest is VaultTestBase {
     // SC-6 —— 越权
     // ---------------------------------------------------------------------
 
+    /// @dev 无关地址调用 `withdrawETH` 被 `onlyOwnerOrAdmin` 拒绝。
     function test_StrangerCannotWithdrawEth() public {
         vm.expectRevert(abi.encodeWithSelector(IBlockchainVault.UnauthorizedCaller.selector, stranger));
         vm.prank(stranger);
         vault.withdrawETH(stranger, 1 ether);
     }
 
+    /// @dev 无关地址调用 `withdrawERC20` 同样被拒绝。
     function test_StrangerCannotWithdrawTokens() public {
         vm.expectRevert(abi.encodeWithSelector(IBlockchainVault.UnauthorizedCaller.selector, stranger));
         vm.prank(stranger);
         vault.withdrawERC20(address(token), stranger, 1e18);
     }
 
+    /// @dev 无关地址无法自我提权为 Admin（`addAdmin` 是 onlyOwner），且状态确实未变。
     function test_StrangerCannotGrantThemselvesAdmin() public {
         vm.expectRevert();
         vm.prank(stranger);
@@ -228,6 +241,7 @@ contract AttackTest is VaultTestBase {
         assertFalse(vault.isAdmin(stranger));
     }
 
+    /// @dev 无关地址既不能暂停也不能恢复（两者都是 onlyOwner）。
     function test_StrangerCannotPauseOrUnpause() public {
         vm.expectRevert();
         vm.prank(stranger);
@@ -241,6 +255,7 @@ contract AttackTest is VaultTestBase {
         vault.unpause();
     }
 
+    /// @dev 无关地址无法调用 `upgradeToAndCall` 更换实现（`_authorizeUpgrade` 是 onlyOwner）。
     function test_StrangerCannotUpgrade() public {
         vm.expectRevert();
         vm.prank(stranger);

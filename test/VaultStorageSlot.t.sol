@@ -15,14 +15,17 @@ contract VaultStorageSlotTest is Test {
         return keccak256(abi.encode(uint256(keccak256(bytes(label))) - 1)) & ~bytes32(uint256(0xff));
     }
 
+    /// @dev 金库主命名空间的槽位常量，等于按 ERC-7201 公式重算的结果。
     function test_VaultStorageSlotMatchesNamespace() public pure {
         assertEq(VaultStorage.SLOT, _erc7201Slot("vault.storage.BlockchainVault"));
     }
 
+    /// @dev V2 新增命名空间的槽位常量，同样等于按公式重算的结果。
     function test_VaultV2StorageSlotMatchesNamespace() public pure {
         assertEq(VaultV2Storage.SLOT, _erc7201Slot("vault.storage.BlockchainVaultV2"));
     }
 
+    /// @dev 两个命名空间的槽位必须不同，否则 V2 的字段会覆写 V1 的状态。
     function test_VaultNamespacesAreDistinct() public pure {
         assertNotEq(VaultStorage.SLOT, VaultV2Storage.SLOT);
     }
